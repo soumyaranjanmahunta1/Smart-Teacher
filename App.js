@@ -6,6 +6,7 @@ import LandingPage from './Screens/LandingPage';
 import Result from './Screens/Result';
 import Exam from './Screens/Exam';
 import ExamHall from './Screens/ExamHall';
+import CreateTest from './Screens/CreateTest';
 
 import TestPage from './Screens/TestPage';
 import { createDrawerNavigator } from '@react-navigation/drawer';
@@ -63,6 +64,14 @@ const App = () => {
         <Stack.Screen
           name="ExamHall"
           component={ExamHall}
+          options={{
+            headerBackTitleVisible: false,
+            title: '',
+          }}
+        />
+        <Stack.Screen
+          name="CreateTest"
+          component={CreateTest}
           options={{
             headerBackTitleVisible: false,
             title: '',

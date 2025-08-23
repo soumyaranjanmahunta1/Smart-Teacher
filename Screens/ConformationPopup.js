@@ -13,7 +13,7 @@ const ConformationPopup = ({ visible, message, onCancel, onConfirm }) => {
               style={[styles.button, styles.cancel]}
               onPress={onCancel}
             >
-              <Text style={styles.buttonText}>Cancel</Text>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, styles.confirm]}
@@ -68,6 +68,10 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#fff',
+    fontWeight: 'bold',
+  },
+  cancelButtonText: {
+    color: 'black',
     fontWeight: 'bold',
   },
 });
