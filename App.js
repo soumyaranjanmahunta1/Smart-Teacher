@@ -7,6 +7,8 @@ import Result from './Screens/Result';
 import Exam from './Screens/Exam';
 import ExamHall from './Screens/ExamHall';
 import CreateTest from './Screens/CreateTest';
+import CreateQuestion from './Screens/CreateQuestion';
+import CreateExam from './Screens/CreateExam';
 
 import TestPage from './Screens/TestPage';
 import { createDrawerNavigator } from '@react-navigation/drawer';
@@ -72,6 +74,22 @@ const App = () => {
         <Stack.Screen
           name="CreateTest"
           component={CreateTest}
+          options={{
+            headerBackTitleVisible: false,
+            title: '',
+          }}
+        />
+        <Stack.Screen
+          name="CreateQuestion"
+          component={CreateQuestion}
+          options={{
+            headerBackTitleVisible: false,
+            title: '',
+          }}
+        />
+        <Stack.Screen
+          name="CreateExam"
+          component={CreateExam}
           options={{
             headerBackTitleVisible: false,
             title: '',

@@ -10,9 +10,11 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import LottieView from 'lottie-react-native';
+import Toast from 'react-native-toast-message';
+import ConformationPopup from '../Screens/ConformationPopup';
 import CountdownTimer from '../Component/CountdownTimer';
 
-const ExamCard = ({ item, navigate }) => {
+const ExamCard = ({ item, navigate, onDelete }) => {
   const [isExamLive, setIsExamLive] = useState(false);
 
   useEffect(() => {
@@ -21,11 +23,11 @@ const ExamCard = ({ item, navigate }) => {
       setIsExamLive(live);
     };
 
-    checkExamStatus(); // run immediately
-    const interval = setInterval(checkExamStatus, 1000); // check every sec
-
-    return () => clearInterval(interval); // cleanup
+    checkExamStatus();
+    const interval = setInterval(checkExamStatus, 1000);
+    return () => clearInterval(interval);
   }, [item.examDate]);
+
   return (
     <TouchableOpacity
       style={[styles.card, !isExamLive && { opacity: 0.5 }]}
@@ -39,7 +41,8 @@ const ExamCard = ({ item, navigate }) => {
       }
     >
       <View style={styles.cardContent}>
-        <View>
+        {/* Right side with exam info */}
+        <View style={{ flex: 1, marginLeft: 15 }}>
           <Text style={styles.title}>{item.name}</Text>
           <Text style={styles.level}>Level {item.level}</Text>
           {isExamLive ? (
@@ -48,7 +51,12 @@ const ExamCard = ({ item, navigate }) => {
             <CountdownTimer examDate={item.examDate} />
           )}
         </View>
-        <Ionicons name="school-sharp" size={30} color="black" />
+        <View style={styles.iconRow}>
+          <TouchableOpacity onPress={() => onDelete(item.id)}>
+            <Ionicons name="trash-outline" size={22} color="#2c3e50" />
+          </TouchableOpacity>
+          <Ionicons name="school-sharp" size={30} color="black" />
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -57,6 +65,8 @@ const ExamCard = ({ item, navigate }) => {
 const Exam = () => {
   const [exam, setExam] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const navigate = useNavigation();
 
   useEffect(() => {
@@ -65,15 +75,45 @@ const Exam = () => {
 
   const fetchPosts = async () => {
     try {
-      const response = await axios(
+      const response = await axios.get(
         'https://68a5c4352a3deed2960ec9d6.mockapi.io/exams',
       );
-      // Example: replace with response.data when ready
+      console.log(response.data)
       setExam(response.data);
     } catch (error) {
       console.error('Error fetching posts:', error);
     } finally {
       setTimeout(() => setLoading(false), 1500);
+    }
+  };
+
+  const handleDeletePress = id => {
+    setDeleteTarget(id);
+    setModalVisible(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    try {
+      await axios.delete(
+        `https://68a5c4352a3deed2960ec9d6.mockapi.io/exams/${deleteTarget}`,
+      );
+      setExam(prev => prev.filter(item => item.id !== deleteTarget));
+      Toast.show({
+        type: 'success',
+        text1: 'Deleted',
+        text2: 'Exam deleted successfully',
+      });
+    } catch (error) {
+      console.error('Error deleting exam:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to delete exam',
+      });
+    } finally {
+      setDeleteTarget(null);
+      setModalVisible(false);
     }
   };
 
@@ -92,6 +132,14 @@ const Exam = () => {
 
   return (
     <View style={styles.container}>
+      {/* Create Exam button */}
+      <TouchableOpacity
+        style={styles.submitBtn}
+        onPress={() => navigate.navigate('CreateExam')}
+      >
+        <Text style={styles.submitBtnText}>Create Exam</Text>
+      </TouchableOpacity>
+
       {exam.length === 0 ? (
         <View style={styles.noDataContainer}>
           <LottieView
@@ -107,10 +155,24 @@ const Exam = () => {
           data={exam}
           keyExtractor={item => item.id}
           renderItem={({ item }) => (
-            <ExamCard item={item} navigate={navigate} />
+            <ExamCard
+              item={item}
+              navigate={navigate}
+              onDelete={handleDeletePress}
+            />
           )}
         />
       )}
+
+      {/* Confirmation popup */}
+      <ConformationPopup
+        visible={modalVisible}
+        message="Are you sure you want to delete this exam?"
+        onCancel={() => setModalVisible(false)}
+        onConfirm={handleDeleteConfirm}
+      />
+
+      <Toast />
     </View>
   );
 };
@@ -127,6 +189,22 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 70,
     backgroundColor: '#FCDFBB',
+  },
+  submitBtn: {
+    backgroundColor: '#FF3D00',
+    paddingVertical: 8,
+    paddingHorizontal: 7,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    width: '60%',
+    alignSelf: 'center',
+  },
+  submitBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   noDataContainer: {
     flex: 1,
@@ -148,8 +226,12 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  iconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   title: { fontSize: 18, fontWeight: 'bold' },
   level: { fontSize: 14, color: 'gray' },

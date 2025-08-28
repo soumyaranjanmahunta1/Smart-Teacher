@@ -1,164 +1,212 @@
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import LottieView from 'lottie-react-native';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import Sound from 'react-native-sound';
-// const questions = [
-//   {
-//     id: 1,
-//     question: 'What is 2 + 2 ?',
-//     options: ['2', '3', '4', '5'],
-//     correctIndex: 2,
-//   },
-//   {
-//     id: 2,
-//     question: 'What is capital of France?',
-//     options: ['Berlin', 'Madrid', 'Paris', 'Rome'],
-//     correctIndex: 2,
-//   },
-//   {
-//     id: 3,
-//     question: 'What is 7 + 2 ?',
-//     options: ['9', '3', '4', '5'],
-//     correctIndex: 0,
-//   },
-//   {
-//     id: 4,
-//     question: 'What is 2 - 2 ?',
-//     options: ['2', '3', '0', '5'],
-//     correctIndex: 2,
-//   },
-//   // ... total 10 questions
-// ];
+import Icon from 'react-native-vector-icons/Ionicons';
+import ConformationPopup from '../Screens/ConformationPopup';
+
 const TestPage = ({ route }) => {
   const { testName, testId } = route.params;
+  const navigation = useNavigation();
+
   const [selectedOptions, setSelectedOptions] = useState({});
   const [questions, setQuestions] = useState([]);
   const [blast, setBlast] = useState(false);
   const [totalScore, setTotalScore] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // 🔑 delete confirmation states
+  const [modalVisible, setModalVisible] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { questionId }
+
   const handleSelect = (qId, optionIndex, correctIndex) => {
     setBlast(false);
-    if (selectedOptions[qId] !== undefined) return; // prevent reselect
+    if (selectedOptions[qId] !== undefined) return;
+
     setSelectedOptions({
       ...selectedOptions,
       [qId]: optionIndex,
     });
+
     if (optionIndex === correctIndex) {
       setTotalScore(prev => prev + 1);
-      setBlast(false);
-      setTimeout(() => {
-        setBlast(true);
-      }, 10);
-      // Play wow sound
+      setTimeout(() => setBlast(true), 10);
+
       const sound = new Sound('wow.mp3', Sound.MAIN_BUNDLE, error => {
-        if (error) {
-          console.log('Failed to load sound', error);
-          return;
+        if (!error) {
+          sound.play(() => sound.release());
         }
-        sound.play(() => {
-          sound.release(); // free up memory after playing
-        });
       });
     } else {
-      // Play wow sound
       const sound = new Sound('wrong.mp3', Sound.MAIN_BUNDLE, error => {
-        if (error) {
-          console.log('Failed to load sound', error);
-          return;
+        if (!error) {
+          sound.play(() => sound.release());
         }
-        sound.play(() => {
-          sound.release(); // free up memory after playing
-        });
       });
     }
   };
-  useEffect(() => {
-    fetchQuestions();
-  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      fetchQuestions();
+    }, []),
+  );
+
   const fetchQuestions = async () => {
     try {
-      const response = await axios(
+      setLoading(true);
+      setErrorMessage('');
+      setQuestions([]);
+
+      const response = await axios.get(
         `https://68a169876f8c17b8f5d9c4b0.mockapi.io/get/tests/getQuestions?testId=${Number(
           testId,
         )}`,
       );
-      setQuestions(response.data);
+
+      if (response.data && response.data.length > 0) {
+        setQuestions(response.data);
+      } else {
+        setErrorMessage('No questions available for this test.');
+      }
     } catch (error) {
-      console.error('Error fetching posts:', error);
+      if (error.response && error.response.status === 404) {
+        setErrorMessage('No questions found for this test.');
+      } else {
+        setErrorMessage('Something went wrong. Please try again later.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
+
+  // 🔥 confirm delete
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    try {
+      await axios.delete(
+        `https://68a169876f8c17b8f5d9c4b0.mockapi.io/get/tests/getQuestions/${deleteTarget.questionId}`,
+      );
+      setQuestions(prev => prev.filter(q => q.id !== deleteTarget.questionId));
+    } catch (err) {
+      console.error('Error deleting question:', err);
+    } finally {
+      setDeleteTarget(null);
+      setModalVisible(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>{testName}</Text>
+      {/* Header Row */}
+      <View style={styles.headerRow}>
+        <Text style={styles.header}>{testName}</Text>
+
+        <TouchableOpacity
+          style={styles.submitBtn}
+          onPress={() => navigation.navigate('CreateQuestion', { testId })}
+        >
+          <Text style={styles.submitBtnText}>Create Question</Text>
+        </TouchableOpacity>
+      </View>
+
       <Text style={styles.score}>Total Score: {totalScore}</Text>
 
-      <FlatList
-        data={questions}
-        keyExtractor={item => item.id.toString()}
-        renderItem={({ item }) => {
-          const selected = selectedOptions[item.id];
-          return (
-            <View style={styles.questionBlock}>
-              <Text style={styles.question}>
-                {item.id}. {item.question}
-              </Text>
-              {item.options.map((opt, index) => {
-                let borderColor = '#ccc';
-                if (selected !== undefined) {
-                  if (index === selected) {
-                    borderColor = index === item.correctIndex ? 'green' : 'red';
-                  }
-                  if (index === item.correctIndex) {
-                    borderColor = 'green';
-                  }
-                }
-                return (
+      {/* Loading state */}
+      {loading && <ActivityIndicator size="large" color="#FF3D00" />}
+
+      {/* Error or No Questions */}
+      {!loading && errorMessage ? (
+        <View style={styles.noDataContainer}>
+          <LottieView
+            source={require('../Gif/empty box3.json')}
+            autoPlay
+            loop
+            style={{ width: 300, height: 300 }}
+          />
+          <Text style={styles.noDataText}>{errorMessage}</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={questions}
+          keyExtractor={item => item.id.toString()}
+          renderItem={({ item, index }) => {
+            const selected = selectedOptions[item.id];
+            return (
+              <View style={styles.questionBlock}>
+                <View style={styles.questionHeader}>
+                  <Text style={styles.question}>
+                    {index + 1}. {item.question}
+                  </Text>
                   <TouchableOpacity
-                    key={index}
-                    style={[styles.option, { borderColor }]}
-                    onPress={() =>
-                      handleSelect(item.id, index, item.correctIndex)
-                    }
+                    onPress={() => {
+                      setDeleteTarget({ questionId: item.id });
+                      setModalVisible(true);
+                    }}
                   >
-                    <Text>{opt}</Text>
+                    <Icon name="trash" size={22} color="#2c3e50" />
                   </TouchableOpacity>
-                );
-              })}
-            </View>
-          );
-        }}
-      />
-      {blast && (
-        <View
-          pointerEvents="none" // ✅ wrapper ignores touches
-          style={{
-            position: 'absolute',
-            top: -230,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999,
-            backgroundColor: 'transparent',
+                </View>
+
+                {item.options.map((opt, idx) => {
+                  let borderColor = '#ccc';
+                  if (selected !== undefined) {
+                    if (idx === selected) {
+                      borderColor = idx === item.correctIndex ? 'green' : 'red';
+                    }
+                    if (idx === item.correctIndex) {
+                      borderColor = 'green';
+                    }
+                  }
+                  return (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[styles.option, { borderColor }]}
+                      onPress={() =>
+                        handleSelect(item.id, idx, item.correctIndex)
+                      }
+                    >
+                      <Text>{opt}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            );
           }}
-        >
+        />
+      )}
+
+      {/* Confetti Blast 🎉 */}
+      {blast && (
+        <View pointerEvents="none" style={styles.confettiContainer}>
           <LottieView
             source={require('../Gif/Confetti.json')}
             autoPlay
             loop={false}
-            style={{
-              width: '100%',
-              height: '100%',
-            }}
+            style={{ width: '100%', height: '100%' }}
             onAnimationFinish={() => setBlast(false)}
           />
         </View>
       )}
+
+      {/* Confirmation Popup */}
+      <ConformationPopup
+        visible={modalVisible}
+        message="Are you sure you want to delete this question?"
+        onCancel={() => setModalVisible(false)}
+        onConfirm={handleDeleteConfirm}
+      />
     </View>
   );
 };
@@ -172,8 +220,31 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  submitBtn: {
+    backgroundColor: '#FF3D00',
+    paddingVertical: 8,
+    paddingHorizontal: 7,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    alignSelf: 'center',
+  },
+  submitBtnText: { color: '#fff', fontWeight: '600' },
   questionBlock: { marginBottom: 20 },
-  question: { fontSize: 18, marginBottom: 10 },
+  questionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  question: { fontSize: 18, flex: 1, marginRight: 10 },
   option: {
     padding: 12,
     borderWidth: 2,
@@ -181,5 +252,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: '#FEF3E7',
   },
+  noDataContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noDataText: { fontSize: 16, color: '#555', marginTop: 10 },
+  confettiContainer: {
+    position: 'absolute',
+    top: -230,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
+    backgroundColor: 'transparent',
+  },
 });
+
 export default TestPage;
