@@ -79,7 +79,7 @@ android {
 
     namespace "com.learningapp"
     defaultConfig {
-        applicationId "com.learningapp"
+        applicationId "com.SmartTeacher"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

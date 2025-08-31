@@ -1,7 +1,7 @@
 import axios from 'axios';
 import LottieView from 'lottie-react-native';
 import Entypo from 'react-native-vector-icons/Entypo';
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import {
   View,
@@ -12,10 +12,14 @@ import {
   TextInput,
   FlatList,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import Sound from 'react-native-sound';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+import { useFocusEffect } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import ConformationPopup from './ConformationPopup';
 
 const { width, height } = Dimensions.get('window');
 
@@ -26,13 +30,29 @@ const ExamHall = ({ route, navigation }) => {
   const [blast, setBlast] = useState(false);
   const [totalScore, setTotalScore] = useState(0);
   const [name, setName] = useState('');
-  const [showNameModal, setShowNameModal] = useState(true);
+  const [showNameModal, setShowNameModal] = useState(false);
   const [timer, setTimer] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [examFinished, setExamFinished] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showDeletePopUp, setShowDeletePopUp] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
   const flatListRef = useRef();
   const timerRef = useRef(null);
+  const handleDeleteRequest = (id, type = 'exam') => {
+    setDeleteTarget({ id, type });
+    setShowDeletePopUp(true);
+  };
+  const handleDeleteConfirm = () => {
+    if (deleteTarget?.id) {
+      handleDelete(deleteTarget.id);
+    }
+    setShowDeletePopUp(false);
+  };
+  const apiUrl = 'https://68a5c4352a3deed2960ec9d6.mockapi.io/questions';
 
   const parseDuration = duration => {
     const [h, m, s] = duration.split(':').map(Number);
@@ -71,7 +91,7 @@ const ExamHall = ({ route, navigation }) => {
     if (isCorrect) {
       const newScore = totalScore + 1;
       setTotalScore(newScore);
-      AsyncStorage.setItem(`score_${testId}`, String(newScore)); // ✅ save score
+      AsyncStorage.setItem(`score_${testId}`, String(newScore));
       setTimeout(() => setBlast(true), 10);
 
       const sound = new Sound('wow.mp3', Sound.MAIN_BUNDLE, error => {
@@ -84,6 +104,20 @@ const ExamHall = ({ route, navigation }) => {
     }
   };
 
+  const handleDelete = async id => {
+    try {
+      await axios.delete(`${apiUrl}/${id}`);
+      setQuestions(prev => prev.filter(q => q.id !== id));
+      Toast.show({
+        type: 'success',
+        text1: 'Deleted',
+        text2: 'Question removed',
+      });
+    } catch (error) {
+      console.error('Error deleting question:', error);
+    }
+  };
+
   const handleSubmit = async () => {
     if (examFinished) return;
     setExamFinished(true);
@@ -92,8 +126,9 @@ const ExamHall = ({ route, navigation }) => {
       timerRef.current = null;
     }
     try {
-      const apiUrl = 'https://68a5f0502a3deed2960f6965.mockapi.io/resultData';
-      const { data } = await axios.get(apiUrl);
+      const resultApi =
+        'https://68a5f0502a3deed2960f6965.mockapi.io/resultData';
+      const { data } = await axios.get(resultApi);
 
       const existingExam = data.find(exam => exam.exam === testName);
 
@@ -102,39 +137,46 @@ const ExamHall = ({ route, navigation }) => {
           ...existingExam.results,
           { name, mark: totalScore },
         ];
-
-        await axios.put(`${apiUrl}/${existingExam.id}`, {
+        await axios.put(`${resultApi}/${existingExam.id}`, {
           exam: testName,
           results: updatedResults,
         });
       } else {
-        await axios.post(apiUrl, {
+        await axios.post(resultApi, {
           exam: testName,
           results: [{ name, mark: totalScore }],
         });
       }
       setShowFinishModal(true);
 
-      // Clear storage
-      await AsyncStorage.removeItem(`timer_${testId}`);
-      await AsyncStorage.removeItem(`answers_${testId}`);
-      await AsyncStorage.removeItem(`name_${testId}`);
-      await AsyncStorage.removeItem(`score_${testId}`);
+      await AsyncStorage.multiRemove([
+        `timer_${testId}`,
+        `answers_${testId}`,
+        `name_${testId}`,
+        `score_${testId}`,
+      ]);
     } catch (error) {
       console.error('Error saving result:', error);
       Toast.show({
         type: 'error',
         text1: 'Error',
-        text2: 'Failed to save result. Try again!',
+        text2: 'Failed to save result',
       });
     }
   };
 
-  useEffect(() => {
-    fetchQuestions();
-    restoreSession();
-  }, []);
+  // useEffect(() => {
+  //   // fetchQuestions();
+  //   restoreSession();
+  // }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      fetchQuestions();
+      restoreSession();
+    }, []),
+  );
   const restoreSession = async () => {
     const savedName = await AsyncStorage.getItem(`name_${testId}`);
     const savedAnswers = await AsyncStorage.getItem(`answers_${testId}`);
@@ -147,19 +189,23 @@ const ExamHall = ({ route, navigation }) => {
     }
     if (savedAnswers) setSelectedOptions(JSON.parse(savedAnswers));
     if (savedTimer) startTimer(Number(savedTimer));
-    if (savedScore) setTotalScore(Number(savedScore)); // ✅ restore score
+    if (savedScore) setTotalScore(Number(savedScore));
   };
 
   const fetchQuestions = async () => {
     try {
-      const response = await axios(
-        `https://68a5c4352a3deed2960ec9d6.mockapi.io/questions?testId=${Number(
-          testId,
-        )}`,
-      );
-      setQuestions(response.data);
+      setLoading(true);
+      setErrorMessage('');
+      const response = await axios(`${apiUrl}?testId=${Number(testId)}`);
+      if (response.data.length > 0) {
+        setQuestions(response.data);
+      } else {
+        setErrorMessage('No questions available for this exam.');
+      }
     } catch (error) {
-      console.error('Error fetching questions:', error);
+      setErrorMessage('Something went wrong. Please try again later.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -178,61 +224,108 @@ const ExamHall = ({ route, navigation }) => {
         <View style={styles.headerRow}>
           <Text style={styles.timer}>{formatTime(timer)}</Text>
           <Text style={styles.examName}>{testName}</Text>
-          <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
-            <Text style={styles.submitBtnText}>Submit</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row' }}>
+            <TouchableOpacity
+              style={[
+                styles.submitBtn,
+                { marginRight: 10, backgroundColor: 'green' },
+              ]}
+              onPress={() =>
+                navigation.navigate('CreateQuestion', {
+                  testId: testId,
+                  pageName: 'ExamHall',
+                })
+              }
+            >
+              <Text style={styles.submitBtnText}>+ Question</Text>
+            </TouchableOpacity>
+            {/* <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
+              <Text style={styles.submitBtnText}>Submit</Text>
+            </TouchableOpacity> */}
+          </View>
         </View>
       )}
 
-      {/* Questions */}
-      <FlatList
-        ref={flatListRef}
-        data={questions}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={item => item.id.toString()}
-        renderItem={({ item }) => {
-          const selected = selectedOptions[item.id];
-          return (
-            <View style={styles.cardWrapper}>
-              <View style={styles.questionCard}>
-                <Text style={styles.question}>{item.question}</Text>
-                {item.options.map((opt, index) => {
-                  let borderColor = '#ccc';
-                  if (selected !== undefined) {
-                    if (index === selected) {
-                      borderColor =
-                        index === item.correctIndex ? 'green' : 'red';
-                    }
-                    if (index === item.correctIndex) {
-                      borderColor = 'green';
-                    }
-                  }
-                  return (
+      {/* Loading */}
+      {loading && <ActivityIndicator size="large" color="#FF3D00" />}
+
+      {/* No Questions or Error */}
+      {!loading && errorMessage ? (
+        <View style={styles.noDataContainer}>
+          <LottieView
+            source={require('../Gif/empty box3.json')}
+            autoPlay
+            loop
+            style={{ width: 300, height: 300 }}
+          />
+          <Text style={styles.noDataText}>{errorMessage}</Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={questions}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={item => item.id.toString()}
+          renderItem={({ item }) => {
+            const selected = selectedOptions[item.id];
+            return (
+              <View style={styles.cardWrapper}>
+                <View style={styles.questionCard}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <Text style={styles.question}>{item.question}</Text>
                     <TouchableOpacity
-                      key={index}
-                      style={[styles.option, { borderColor }]}
-                      onPress={() =>
-                        handleSelect(item.id, index, item.correctIndex)
-                      }
+                      onPress={() => handleDeleteRequest(item.id, 'exam')}
                     >
-                      <Text style={styles.optionText}>{opt}</Text>
+                      <Ionicons
+                        name="trash-outline"
+                        size={22}
+                        color="#2c3e50"
+                      />
                     </TouchableOpacity>
-                  );
-                })}
+                  </View>
+                  {item.options.map((opt, index) => {
+                    let borderColor = '#ccc';
+                    if (selected !== undefined) {
+                      if (index === selected) {
+                        borderColor =
+                          index === item.correctIndex ? 'green' : 'red';
+                      }
+                      if (index === item.correctIndex) {
+                        borderColor = 'green';
+                      }
+                    }
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={[styles.option, { borderColor }]}
+                        onPress={() =>
+                          handleSelect(item.id, index, item.correctIndex)
+                        }
+                      >
+                        <Text style={styles.optionText}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
-          );
-        }}
-        onMomentumScrollEnd={e => {
-          const index = Math.round(
-            e.nativeEvent.contentOffset.x /
-              e.nativeEvent.layoutMeasurement.width,
-          );
-          setCurrentIndex(index);
-        }}
-      />
+            );
+          }}
+          onMomentumScrollEnd={e => {
+            const index = Math.round(
+              e.nativeEvent.contentOffset.x /
+                e.nativeEvent.layoutMeasurement.width,
+            );
+            setCurrentIndex(index);
+          }}
+        />
+      )}
 
       {/* Arrows */}
       {!showNameModal && questions.length > 0 && (
@@ -274,7 +367,7 @@ const ExamHall = ({ route, navigation }) => {
       )}
 
       {/* Name Modal */}
-      <Modal visible={showNameModal} transparent animationType="slide">
+      {/* <Modal visible={showNameModal} transparent animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalBox}>
             <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
@@ -318,7 +411,7 @@ const ExamHall = ({ route, navigation }) => {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </Modal> */}
 
       {/* Finish Modal */}
       <Modal visible={showFinishModal} transparent animationType="fade">
@@ -342,7 +435,6 @@ const ExamHall = ({ route, navigation }) => {
                 style={{ width: 200, height: 200 }}
                 pointerEvents="none"
               />
-
               <View style={styles.scoreContainer}>
                 <View style={styles.scoreCircle}>
                   <Text style={styles.scoreAchieved}>{totalScore}</Text>
@@ -354,70 +446,22 @@ const ExamHall = ({ route, navigation }) => {
           </View>
         </View>
       </Modal>
-
+      <ConformationPopup
+        visible={showDeletePopUp}
+        message={
+          deleteTarget?.type === 'exam'
+            ? 'Are you sure you want to delete this exam?'
+            : 'Are you sure you want to delete this student?'
+        }
+        onCancel={() => setShowDeletePopUp(false)}
+        onConfirm={handleDeleteConfirm}
+      />
       <Toast />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  finishModalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  finishBox: {
-    backgroundColor: '#FEF3E7',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-    width: '85%',
-    position: 'relative',
-  },
-  resultContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-  },
-  scoreContainer: {
-    marginLeft: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scoreCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: 'green',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scoreAchieved: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: 'green',
-  },
-  divider: {
-    width: '60%',
-    height: 2,
-    backgroundColor: 'green',
-    marginVertical: 5,
-  },
-  scoreTotal: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: 'green',
-  },
-  closeIcon: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    zIndex: 10,
-    elevation: 10,
-  },
   container: { flex: 1, backgroundColor: '#FCDFBB' },
   headerRow: {
     flexDirection: 'row',
@@ -433,33 +477,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     borderRadius: 8,
   },
-  submitBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  cardWrapper: {
-    width: width,
-    alignItems: 'center',
-    marginTop: 10,
-  },
+  submitBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  cardWrapper: { width: width, alignItems: 'center', marginTop: 10 },
   questionCard: {
     width: width * 0.9,
     minHeight: height * 0.55,
     backgroundColor: '#FEF3E7',
     padding: 20,
     borderRadius: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
     elevation: 5,
   },
   question: {
     fontSize: 20,
     marginBottom: 20,
     fontWeight: '600',
-    textAlign: 'center',
+    flex: 1,
+    flexWrap: 'wrap',
   },
   option: {
     paddingVertical: 16,
@@ -470,18 +503,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FCDFBB',
     width: '100%',
   },
-  optionText: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#333',
-    textAlign: 'center',
-  },
-  arrowContainer: {
-    position: 'absolute',
-    top: height * 0.3,
-    zIndex: 1000,
-  },
-  arrow: { fontSize: 32 },
+  optionText: { fontSize: 18, fontWeight: '500', textAlign: 'center' },
+  arrowContainer: { position: 'absolute', top: height * 0.3, zIndex: 1000 },
   confettiWrapper: {
     position: 'absolute',
     top: -230,
@@ -490,6 +513,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 999,
   },
+  noDataContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  noDataText: { fontSize: 16, color: '#555', marginTop: 10 },
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -519,6 +544,44 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   startBtnText: { color: '#fff', fontWeight: 'bold' },
+  finishModalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  finishBox: {
+    backgroundColor: '#FEF3E7',
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    width: '85%',
+  },
+  resultContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  scoreContainer: { alignItems: 'center', justifyContent: 'center' },
+  scoreCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 3,
+    borderColor: 'green',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreAchieved: { fontSize: 28, fontWeight: 'bold', color: 'green' },
+  divider: {
+    width: '60%',
+    height: 2,
+    backgroundColor: 'green',
+    marginVertical: 5,
+  },
+  scoreTotal: { fontSize: 28, fontWeight: 'bold', color: 'green' },
+  closeIcon: { position: 'absolute', top: 10, right: 10 },
 });
 
 export default ExamHall;

@@ -61,7 +61,7 @@ const CreateExam = () => {
         text1: 'Success',
         text2: 'Exam created successfully!',
       });
-      navigation.navigate('Exams'); // back to exam list
+      navigation.goBack();
     } catch (error) {
       console.error('Error creating exam:', error);
       Toast.show({

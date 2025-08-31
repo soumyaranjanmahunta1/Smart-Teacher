@@ -10,7 +10,7 @@ import axios from 'axios';
 import Toast from 'react-native-toast-message';
 
 const CreateQuestion = ({ route, navigation }) => {
-  const { testId } = route.params;
+  const { testId, pageName } = route.params; // ✅ pageName added
 
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '', '', '']);
@@ -35,17 +35,20 @@ const CreateQuestion = ({ route, navigation }) => {
       correctIndex,
     };
 
+    // ✅ Decide API based on pageName
+    const apiUrl =
+      pageName === 'ExamHall'
+        ? 'https://68a5c4352a3deed2960ec9d6.mockapi.io/questions'
+        : 'https://68a169876f8c17b8f5d9c4b0.mockapi.io/get/tests/getQuestions';
+
     try {
-      await axios.post(
-        `https://68a169876f8c17b8f5d9c4b0.mockapi.io/get/tests/getQuestions`,
-        payload,
-      );
-      console.log(payload);
+      await axios.post(apiUrl, payload);
       Toast.show({
         type: 'success',
         text1: 'Created',
         text2: 'Question created successfully',
       });
+
       navigation.goBack();
     } catch (error) {
       console.error('Error creating question:', error);
@@ -61,6 +64,7 @@ const CreateQuestion = ({ route, navigation }) => {
         style={styles.input}
         placeholder="Enter Question"
         value={question}
+        placeholderTextColor="black"
         onChangeText={setQuestion}
       />
 
@@ -69,6 +73,7 @@ const CreateQuestion = ({ route, navigation }) => {
           key={idx}
           style={styles.input}
           placeholder={`Option ${idx + 1}`}
+          placeholderTextColor="black"
           value={opt}
           onChangeText={text => handleOptionChange(text, idx)}
         />
@@ -106,6 +111,7 @@ const styles = StyleSheet.create({
     borderColor: '#ccc',
     borderRadius: 6,
     padding: 10,
+    color: 'black',
     marginBottom: 12,
   },
   label: { fontSize: 16, marginVertical: 10 },

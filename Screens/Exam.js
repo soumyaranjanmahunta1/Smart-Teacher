@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   View,
@@ -30,8 +30,12 @@ const ExamCard = ({ item, navigate, onDelete }) => {
 
   return (
     <TouchableOpacity
-      style={[styles.card, !isExamLive && { opacity: 0.5 }]}
-      disabled={!isExamLive}
+      style={[
+        styles.card,
+        !isExamLive,
+        //  && { opacity: 0.5 }
+      ]}
+      // disabled={!isExamLive}
       onPress={() =>
         navigate.navigate('ExamHall', {
           testName: item.name,
@@ -69,16 +73,20 @@ const Exam = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const navigate = useNavigation();
 
-  useEffect(() => {
-    fetchPosts();
-  }, []);
-
+  // useEffect(() => {
+  //   fetchPosts();
+  // }, []);
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      fetchPosts();
+    }, []),
+  );
   const fetchPosts = async () => {
     try {
       const response = await axios.get(
         'https://68a5c4352a3deed2960ec9d6.mockapi.io/exams',
       );
-      console.log(response.data)
       setExam(response.data);
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -91,31 +99,87 @@ const Exam = () => {
     setDeleteTarget(id);
     setModalVisible(true);
   };
-
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     try {
+      let relatedQuestions = [];
+
+      try {
+        // 1. Try fetching related questions
+        const questionsRes = await axios.get(
+          `https://68a5c4352a3deed2960ec9d6.mockapi.io/questions?testId=${deleteTarget}`,
+        );
+        relatedQuestions = questionsRes?.data || [];
+      } catch (err) {
+        // If 404 or no questions, just continue with empty array
+        if (err.response && err.response.status === 404) {
+          relatedQuestions = [];
+        } else {
+          throw err; // rethrow other errors
+        }
+      }
+
+      // 2. Delete each question (if any)
+      if (relatedQuestions.length > 0) {
+        await Promise.all(
+          relatedQuestions.map(q =>
+            axios.delete(
+              `https://68a5c4352a3deed2960ec9d6.mockapi.io/questions/${q.id}`,
+            ),
+          ),
+        );
+      }
+
+      // 3. Now delete the exam
       await axios.delete(
         `https://68a5c4352a3deed2960ec9d6.mockapi.io/exams/${deleteTarget}`,
       );
+
+      // 4. Update state
       setExam(prev => prev.filter(item => item.id !== deleteTarget));
+
       Toast.show({
         type: 'success',
         text1: 'Deleted',
-        text2: 'Exam deleted successfully',
+        text2: 'Exam & related questions deleted successfully',
       });
     } catch (error) {
-      console.error('Error deleting exam:', error);
+      console.error('Error deleting exam/questions:', error);
       Toast.show({
         type: 'error',
         text1: 'Error',
-        text2: 'Failed to delete exam',
+        text2: 'Failed to delete exam or related questions',
       });
     } finally {
       setDeleteTarget(null);
       setModalVisible(false);
     }
   };
+
+  // const handleDeleteConfirm = async () => {
+  //   if (!deleteTarget) return;
+  //   try {
+  //     await axios.delete(
+  //       `https://68a5c4352a3deed2960ec9d6.mockapi.io/exams/${deleteTarget}`,
+  //     );
+  //     setExam(prev => prev.filter(item => item.id !== deleteTarget));
+  //     Toast.show({
+  //       type: 'success',
+  //       text1: 'Deleted',
+  //       text2: 'Exam deleted successfully',
+  //     });
+  //   } catch (error) {
+  //     console.error('Error deleting exam:', error);
+  //     Toast.show({
+  //       type: 'error',
+  //       text1: 'Error',
+  //       text2: 'Failed to delete exam',
+  //     });
+  //   } finally {
+  //     setDeleteTarget(null);
+  //     setModalVisible(false);
+  //   }
+  // };
 
   if (loading) {
     return (

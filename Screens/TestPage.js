@@ -115,7 +115,12 @@ const TestPage = ({ route }) => {
 
         <TouchableOpacity
           style={styles.submitBtn}
-          onPress={() => navigation.navigate('CreateQuestion', { testId })}
+          onPress={() =>
+            navigation.navigate('CreateQuestion', {
+              testId: testId,
+              pageName: 'TestPage',
+            })
+          }
         >
           <Text style={styles.submitBtnText}>Create Question</Text>
         </TouchableOpacity>
